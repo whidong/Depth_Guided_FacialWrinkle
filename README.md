@@ -12,12 +12,12 @@ File Structure
   ├── U_net.py
   ├── swin_unetr.py
 ├── experiments
-  ├── U_net.ipynb # Pretraining
-  ├── Unet_fine_final.ipynb # Finetuning
+  ├── U_net.ipynb                      # Pretraining
+  ├── Unet_fine_final.ipynb            # Finetuning
   ├── trained_unet_full_checkpoint.pth # Pretrain checkpoint
-├── Masking_Face.ipynb # Face Masking
-├── depth_map.ipynb # transform Depth map Gray scale
-├── depth_masking.ipynb # Masking Depth map
-├── Merge_face_masking.ipynb # Face masking RGB image
+├── Masking_Face.ipynb                 # Face Masking
+├── depth_map.ipynb                    # transform Depth map Gray scale
+├── depth_masking.ipynb                # Masking Depth map
+├── Merge_face_masking.ipynb           # Face masking RGB image
 ├── README.md 
 ```
