@@ -11,7 +11,7 @@ File Structure
   ├── __init__.py
   ├── U_net.py
   ├── swin_unetr.py
-├── expriments
+├── experiments
   ├── U_net.ipynb # Pretraining
   ├── Unet_fine_final.ipynb # Finetuning
   ├── trained_unet_full_checkpoint.pth # Pretrain checkpoint
