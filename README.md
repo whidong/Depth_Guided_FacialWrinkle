@@ -9,7 +9,12 @@ File Structure
 ```
 ├── model  
   ├── __init__.py
+  ├── segmentation_models.py
   ├── U_net.py
+  ├── Custom_UNet.py
+  ├── swin_transformer.py
+  ├── swin_transformer_v2.py
+  ├── Custom_swin_unetr.py
   ├── swin_unetr.py
 ├── experiments
   ├── U_net.ipynb                      # Pretraining
