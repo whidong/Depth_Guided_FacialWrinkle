@@ -57,7 +57,7 @@ def main_test(mode, ckpt_path, seed=42, batch_size=8):
     min_depth, max_depth = calculate_depth_min_max(depth_paths)
 
     dataset = WrinkleDataset(rgb_paths, depth_paths, weak_texture_paths, label_paths,
-                             transform=None, min_depth=min_depth, max_depth=max_depth, mode=mode)
+                             transform=None, min_depth=min_depth, max_depth=max_depth, mode=mode, task='finetune')
     # 데이터 분할
     total_len = len(dataset)
     train_size = int(0.8 * total_len)
@@ -66,7 +66,7 @@ def main_test(mode, ckpt_path, seed=42, batch_size=8):
     train_subset, val_subset, test_subset = random_split(dataset, [train_size, val_size, test_size], generator=generator)
 
     val_transform = A.Compose([
-        A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0), std=(0.229, 0.224, 0.225, 1.0, 1.0)),
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(transpose_mask=True)
     ])
 
@@ -103,19 +103,19 @@ def main():
     #   RGBDT-> ...
     all_checkpoints = {
         "RGB": [
-            "./no_RDT/best_unet_finetuning_RGB_0_seed42.pth",
-            "./no_RDT/best_unet_finetuning_RGB_1_seed2025.pth",
-            "./no_RDT/best_unet_finetuning_RGB_2_seed2024.pth"
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGB0206_0_seed42.pth",
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGB0206_1_seed2025.pth",
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGB0206_2_seed2024.pth"
         ],
         "RGBT": [
-            "./no_RDT/best_unet_finetuning_RGBT_no1.pth",
-            "./no_RDT/best_unet_finetuning_RGBT_0_seed2025.pth",
-            "./no_RDT/best_unet_finetuning_RGBT_0_seed2024.pth"
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGBT_0_seed42.pth",
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGBT_1_seed2025.pth",
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGBT_2_seed2024.pth"
         ],
         "RGBDT": [
-            "./no_RDT/best_unet_finetuning_RGBDT_no4.pth",
-            "./no_RDT/best_unet_finetuning_RGBDT_no5.pth",
-            "./no_RDT/best_unet_finetuning_RGBDT_no6.pth"
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGBDT0202_0_seed42.pth",
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGBDT0202_1_seed2025.pth",
+            "./no_RDT/no_pretrain/best_unet_finetuning_RGBDT0202_2_seed2024.pth"
         ]
     }
 

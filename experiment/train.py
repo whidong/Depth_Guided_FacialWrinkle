@@ -24,7 +24,7 @@ from torch.utils.data import random_split
 import torch.nn as nn
 import torch.optim as optim
 
-def main_experiment(run_id, seed):
+def main_experiment(run_id, seed, mode, batch_size = 10):
     """
     한 번의 학습+검증 프로세스를 실행하고, 결과를 반환.
     run_id : 현재 실행 중인 반복 실험 번호
@@ -37,10 +37,25 @@ def main_experiment(run_id, seed):
 
     print(f"Starting experiment run_id={run_id}, seed={seed}")
 
+    if mode == "RGB":
+        in_ch = 3
+        out_ch = 2
+    elif mode == "RGBT":
+        in_ch = 4
+        out_ch = 2
+    elif mode == "RGBDT":
+        in_ch = 5
+        out_ch = 2
+    elif mode == "denoise":
+        in_ch = 3
+        out_ch = 3
+    else:
+        raise ValueError(f"Unknown mode: {mode}")
+
     unet_fine_model = create_model(
         model_type="custom_unet",
-        in_channels=4,   # 입력 채널 수: RGB(3) + Depth(1) + Weak Texture Map(1)
-        out_channels=2   # 출력 채널 수: Wrinkle(1) + Background(1)
+        in_channels=in_ch,   # 입력 채널 수: RGB(3) + Depth(1) + Weak Texture Map(1)
+        out_channels=out_ch   # 출력 채널 수: Wrinkle(1) + Background(1)
     )
     unet_fine_model = nn.DataParallel(unet_fine_model).cuda()
 
@@ -65,9 +80,8 @@ def main_experiment(run_id, seed):
     min_depth, max_depth = calculate_depth_min_max(depth_paths)
     print(f"Depth 이미지의 최소값: {min_depth}, 최대값: {max_depth}")
 
-    mode = "RGBT"
     dataset = WrinkleDataset(rgb_paths, depth_paths, weak_texture_paths, label_paths,
-                             transform=None, min_depth=min_depth, max_depth=max_depth, mode=mode)
+                             transform=None, min_depth=min_depth, max_depth=max_depth, mode=mode, task = "finetune")
     
     # 데이터 분할
     train_size = int(0.8 * len(dataset))
@@ -77,7 +91,7 @@ def main_experiment(run_id, seed):
 
     train_transform = get_train_augmentations()
     val_transform = A.Compose([
-        A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0), std=(0.229, 0.224, 0.225, 1.0, 1.0)),
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         ToTensorV2(transpose_mask=True)
     ])
 
@@ -85,7 +99,6 @@ def main_experiment(run_id, seed):
     val_dataset = WrappedDataset(val_subset, transform=val_transform)
     test_dataset = WrappedDataset(test_subset, transform=val_transform)
 
-    batch_size = 10
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
@@ -97,7 +110,7 @@ def main_experiment(run_id, seed):
 
     epochs = 150
     scaler = GradScaler()
-    writer = SummaryWriter(log_dir=f'unet_runs/no_pretrain/unet_fintuning_RGBT_{run_id}_seed{seed}')
+    writer = SummaryWriter(log_dir=f'unet_runs/unet_fintuning_RGB0206_{run_id}_seed{seed}')
     best_val_loss_unet = float('inf')
     best_val_jsi = 0.0
     patience = 15
@@ -106,7 +119,7 @@ def main_experiment(run_id, seed):
     for epoch in range(epochs):
         print(f"[Run {run_id+1}] Epoch {epoch + 1}/{epochs}")
         train_loss = train_epoch(train_loader, unet_fine_model, criterion, optimizer, scaler)
-        val_loss, val_jsi, val_f1 = validate_epoch(val_loader, unet_fine_model, criterion, epoch + 1, scaler, writer = writer)
+        val_loss, val_jsi, val_f1 = validate_epoch(val_loader, unet_fine_model, criterion, epoch + 1, writer = writer)
 
         scheduler.step(epoch)
         current_lr = optimizer.param_groups[0]['lr']
@@ -120,7 +133,7 @@ def main_experiment(run_id, seed):
             best_val_loss_unet = val_loss
             best_val_jsi = val_jsi
             from utils.train_utils import save_model
-            save_model(unet_fine_model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./no_RDT/no_pretrain/best_unet_finetuning_RGBT_{run_id}_seed{seed}.pth')
+            save_model(unet_fine_model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./no_RDT/best_unet_finetuning_RGB0206_{run_id}_seed{seed}.pth')
             print(f"[Run {run_id+1}] Model saved based on Validation JSI: {val_jsi:.4f} and Loss: {val_loss:.6f}")
             patience_counter = 0
         else:
@@ -135,9 +148,11 @@ def main_experiment(run_id, seed):
 
 def main():
     run_seeds = [42,2025,2024]
+    mode = "RGB"
+    batch_size = 10
     results = []
     for run_id, seed in enumerate(run_seeds):
-        val_loss, val_jsi = main_experiment(run_id, seed)
+        val_loss, val_jsi = main_experiment(run_id, seed, mode, batch_size)
         results.append((val_loss, val_jsi))
 
     print("=== Final Results of 3 Runs ===")

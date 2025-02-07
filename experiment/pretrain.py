@@ -11,7 +11,7 @@ from torch.amp import GradScaler
 from torch.utils.tensorboard import SummaryWriter
 
 from datasets.dataset import WrinkleDataset, get_texture_augmentations, get_pre_augmentations, WrappedDataset
-from utils.train_utils import train_epoch, validate_epoch_pretrain, save_model, save_pretraining_results, get_folder_name, collect_file_paths
+from utils.train_utils import train_epoch, train_denoise_epoch, validate_epoch_pretrain, validate_epoch_denoise,save_model, save_pretraining_results, get_folder_name, collect_file_paths
 from utils.metrics import calculate_metrics_gpu, calculate_depth_min_max
 from utils.custom_scheduler import CustomCosineAnnealingWarmRestarts
 from loss.dice_loss import soft_dice_loss
@@ -24,36 +24,41 @@ from torch.utils.data import random_split
 import torch.nn as nn
 import torch.optim as optim
 
-def main_pretrain(run_id, mode, seed, batch_size = 8):
+def main_pretrain(model_type, run_id, mode, seed, batch_size = 23):
     """
     한 번의 학습+검증 프로세스를 실행하고, 결과를 반환.
     run_id : 현재 실행 중인 반복 실험 번호
     total_runs : 총 반복 실험 횟수
     """
-    # 랜덤 시드
+    # Random seed
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    generator = torch.Generator().manual_seed(42)
+    generator = torch.Generator().manual_seed(42) # Dataset suffle seed
 
     print(f"Starting experiment run_id={run_id}, seed={seed}")
 
     # in_channels by mode
     if mode == "RGB":
         in_ch = 3
+        out_ch = 1
     elif mode == "RGBD":
         in_ch = 4
+        out_ch = 1
+    elif mode == "denoise":
+        in_ch = 3
+        out_ch = 3
     else:
         raise ValueError(f"Unknown mode: {mode}")
 
-    model = create_model(model_type="custom_unet", in_channels=in_ch, out_channels=1)
+    model = create_model(model_type= model_type, in_channels = in_ch, out_channels = out_ch)
     model = nn.DataParallel(model).cuda()
 
-    # 경로 설정
+    # data path
     rgb_dir = "../data/images1024x1024"
     depth_dir = "../data/depth_masking"
     label_dir = "../data/weak_wrinkle_masks"
 
-    # Ground Truth 주름 마스크 파일 이름 수집
+    # Get Ground Truth file name
     manual_mask_dir = "../data/manual_wrinkle_masks"
     manual_mask_files = []
 
@@ -62,12 +67,12 @@ def main_pretrain(run_id, mode, seed, batch_size = 8):
             if filename.endswith('.png'):
                 manual_mask_files.append(filename)
 
-    manual_mask_files = set(manual_mask_files)  # 집합으로 변환하여 검색 속도 향상
+    manual_mask_files = set(manual_mask_files)  # speed up by set 
     
     # RGB, Depth, Label 파일 경로 수집
-    rgb_paths = collect_file_paths(rgb_dir, manual_mask_files, start_folder=0, end_folder=49000)
-    depth_paths = collect_file_paths(depth_dir, manual_mask_files, start_folder=0, end_folder=49000)
-    label_paths = collect_file_paths(label_dir, manual_mask_files, start_folder=0, end_folder=49000)
+    rgb_paths = collect_file_paths(rgb_dir, manual_mask_files, start_folder=0, end_folder=0)
+    depth_paths = collect_file_paths(depth_dir, manual_mask_files, start_folder=0, end_folder=0)
+    label_paths = collect_file_paths(label_dir, manual_mask_files, start_folder=0, end_folder=0)
 
     # 파일 이름만 추출하여 리스트 생성
     rgb_files = [os.path.basename(path) for path in rgb_paths]
@@ -90,25 +95,25 @@ def main_pretrain(run_id, mode, seed, batch_size = 8):
     
     # 데이터셋 분할을 위한 파일 경로 리스트 생성
     data = list(zip(rgb_paths, depth_paths, label_paths))
-    random.shuffle(data)
       
     min_depth, max_depth = calculate_depth_min_max(depth_paths)
+    print(f"Dataset : {len(data)} Mode : {mode} Model : {model_type} input : {in_ch} output : {out_ch}")
     print(f"Depth 이미지의 최소값: {min_depth}, 최대값: {max_depth}")
 
     # 데이터 분할
     train_size = int(0.8 * len(data))
-    train_data = data[:train_size]
-    val_data = data[train_size:]
-
+    val_size = len(data) - train_size
+    train_data, val_data = random_split(data, [train_size, val_size], generator=generator)
+    print(f"Size of dataset train : {train_size} val : {val_size}")
     # RGB + D + Label
     train_rgb_paths, train_depth_paths, train_label_paths = zip(*train_data)
     val_rgb_paths, val_depth_paths, val_label_paths = zip(*val_data)
 
-    if mode == "RGBT" :
+    if mode == "RGBD" :
       train_transform = get_pre_augmentations()
       val_transform = A.Compose([
-      A.Normalize(mean=(0.485, 0.456, 0.406, 0.0), std=(0.229, 0.224, 0.225, 1.0)),
-      ToTensorV2()
+      A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+      ToTensorV2(transpose_mask=True)
       ])
 
     elif mode == "RGB":
@@ -117,10 +122,22 @@ def main_pretrain(run_id, mode, seed, batch_size = 8):
           A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
           ToTensorV2(transpose_mask=True)
       ])
+    
+    elif mode == "denoise":
+        # denoise 모드 전처리 정의
+        train_transform = A.Compose([
+            A.HorizontalFlip(p=0.5),
+            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            ToTensorV2(transpose_mask=True),
+        ])
+        val_transform = A.Compose([
+            A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            ToTensorV2(transpose_mask=True),
+        ])
 
     # 데이터셋 생성
-    train_dataset = WrinkleDataset(train_rgb_paths, train_depth_paths, train_label_paths, transform=train_transform, min_depth=min_depth, max_depth=max_depth, mode = mode)
-    val_dataset = WrinkleDataset(val_rgb_paths, val_depth_paths, val_label_paths, transform=val_transform, min_depth=min_depth, max_depth=max_depth, mode = mode)
+    train_dataset = WrinkleDataset(train_rgb_paths, train_depth_paths, label_paths = train_label_paths, transform=train_transform, min_depth=min_depth, max_depth=max_depth, mode = mode)
+    val_dataset = WrinkleDataset(val_rgb_paths, val_depth_paths, label_paths = val_label_paths, transform=val_transform, min_depth=min_depth, max_depth=max_depth, mode = mode)
 
     # 데이터로더 생성
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
@@ -136,17 +153,21 @@ def main_pretrain(run_id, mode, seed, batch_size = 8):
     )
     scheduler = CustomCosineAnnealingWarmRestarts(optimizer=optimizer, T_0=100, T_mult=2, eta_min=0, eta_max=0.001, decay_factor=0.9, start_epoch=0)
 
-    epochs = 300
+    epochs = 150
     scaler = GradScaler()
-    writer = SummaryWriter(log_dir=f'unet_runs/unet_pretrain_{mode}_seed{seed}')
+    writer = SummaryWriter(log_dir=f'unet_runs/unet_pretrain_{mode}_{run_id}_seed{seed}')
     best_val_loss_unet = float('inf')
     patience = 15
     patience_counter = 0
 
     for epoch in range(epochs):
         print(f"[Run {run_id+1}] Epoch {epoch + 1}/{epochs}")
-        train_loss = train_epoch(train_loader, model, criterion, optimizer, scaler)
-        val_loss, val_acc, val_f1 = validate_epoch_pretrain(val_loader, model, criterion, epoch + 1, scaler, writer = writer)
+        if mode == "denoise":
+            train_loss = train_denoise_epoch(train_loader, model, criterion, optimizer, scaler)
+            val_loss = validate_epoch_denoise(val_loader, model, criterion, epoch + 1, writer = writer)
+        else:
+            train_loss = train_epoch(train_loader, model, criterion, optimizer, scaler)
+            val_loss, val_acc, val_f1 = validate_epoch_pretrain(val_loader, model, criterion, epoch + 1, writer = writer)
 
         scheduler.step(epoch)
         current_lr = optimizer.param_groups[0]['lr']
@@ -155,16 +176,26 @@ def main_pretrain(run_id, mode, seed, batch_size = 8):
         writer.add_scalar('Loss/Train', train_loss, epoch + 1)
         writer.add_scalar('Loss/Validation', val_loss, epoch + 1)
         writer.add_scalar('Learning Rate', current_lr, epoch + 1)
-
-        if val_loss < best_val_loss_unet:
-            best_val_loss_unet = val_loss
-            from utils.train_utils import save_model
-            save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./no_RDT/best_pretrain_{mode}_seed{seed}.pth')
-            print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f}")
-            patience_counter = 0
-        else:
-            patience_counter += 1
-            print(f"[Run {run_id+1}] No improvement. Patience counter: {patience_counter}/{patience}")
+        if mode == "denoise":
+            if val_loss < best_val_loss_unet:
+                best_val_loss_unet = val_loss
+                from utils.train_utils import save_model
+                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./no_RDT/pretrain/best_pretrain_{mode}_{run_id}_seed{seed}.pth')
+                print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f}")
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                print(f"[Run {run_id+1}] No improvement. Patience counter: {patience_counter}/{patience} Validation Loss: {val_loss:.6f}")
+        else: 
+            if val_loss < best_val_loss_unet:
+                best_val_loss_unet = val_loss
+                from utils.train_utils import save_model
+                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./no_RDT/pretrain/best_pretrain_{mode}_{run_id}_seed{seed}.pth')
+                print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f} Acc: {val_acc:.6f}")
+                patience_counter = 0
+            else:
+                patience_counter += 1
+                print(f"[Run {run_id+1}] No improvement. Patience counter: {patience_counter}/{patience} Validation Loss: {val_loss:.6f} Acc: {val_acc:.6f}")
 
     writer.close()
     print(f"[Run {run_id+1}] Finetuning Completed.")
@@ -173,13 +204,14 @@ def main_pretrain(run_id, mode, seed, batch_size = 8):
     return best_val_loss_unet
 
 def main():
-    run_seeds = [42, 42]
-    mode = ["RGB", "RGBD"]
-    results = []
-    batch_size = 8
+    run_seeds = [42] # pretrain model seed
+    mode = ["denoise"] # pretrain model mode
+    results = [] # pretrain result
+    batch_size = 10
+    model_type = "custom_unet"
 
     for run_id, seed in enumerate(run_seeds):
-        val_loss = main_pretrain(run_id, mode[run_id], seed, batch_size)
+        val_loss = main_pretrain(model_type, run_id, mode[run_id], seed, batch_size)
         results.append((val_loss))
 
     print("=== Final Results of Runs ===")
