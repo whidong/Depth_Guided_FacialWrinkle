@@ -6,8 +6,8 @@ import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
 class WrinkleDataset(Dataset):
-    def __init__(self, rgb_paths, depth_paths, weak_texture_paths, label_paths, transform=None, 
-                 min_depth=55.0, max_depth=247.0, mode="RGBDT"):
+    def __init__(self, rgb_paths, depth_paths=None, weak_texture_paths=None, label_paths=None, transform=None, 
+                 min_depth=55.0, max_depth=247.0, mode="RGBDT", task = "pretrain"):
         """
         Args:
             rgb_paths (str): RGB 이미지 경로.
@@ -18,9 +18,9 @@ class WrinkleDataset(Dataset):
             mode (str): 입력 모드 선택 ("RGB", "RGBD", "RGBT", "RGBDT").
         """
         self.rgb_paths = rgb_paths
-        self.depth_paths = depth_paths
-        self.weak_texture_paths = weak_texture_paths  
-        self.label_paths = label_paths
+        self.depth_paths = depth_paths if depth_paths is not None else []
+        self.weak_texture_paths = weak_texture_paths  if weak_texture_paths is not None else []
+        self.label_paths = label_paths if label_paths is not None else []
         self.transform = transform
 
         # RGB 이미지 정규화를 위한 평균과 표준편차
@@ -33,6 +33,7 @@ class WrinkleDataset(Dataset):
 
         # 입력 모드 설정
         self.mode = mode
+        self.task = task
 
     def __len__(self):
         return len(self.rgb_paths)
@@ -45,13 +46,24 @@ class WrinkleDataset(Dataset):
 
     def __getitem__(self, idx):
         rgb_path = self.rgb_paths[idx]
-        depth_path = self.depth_paths[idx]
-        weak_texture_path = self.weak_texture_paths[idx]
+        weak_texture_path = self.weak_texture_paths[idx] if self.weak_texture_paths else None
+        depth_path = self.depth_paths[idx] if self.depth_paths else None
         label_path = self.label_paths[idx]
 
-        # RGB 로드 및 정규화
-        rgb_image = np.array(Image.open(rgb_path).convert("RGB")).astype(np.float32) / 255.0
+        rgb_image = np.array(Image.open(rgb_path).convert("RGB")).astype(np.float32)
 
+        if self.task == "pretrain":
+            #pretrain label is weak texture map
+            if self.mode == "denoise":
+                label = rgb_image.copy()
+            else:
+                label = np.array(Image.open(label_path).convert("L")).astype(np.float32)
+                label = np.expand_dims(label, axis = -1)
+
+        elif self.task == "finetune":
+            label = np.array(Image.open(label_path).convert("L")).astype(np.int64)  # 정수형으로 변환
+            label = (label > 0.5).astype(np.int64) 
+            
         # Depth 로드 및 정규화
         if "D" in self.mode:
             depth_image = np.array(Image.open(depth_path).convert("L")).astype(np.float32)
@@ -61,7 +73,7 @@ class WrinkleDataset(Dataset):
         
         # Weak Texture 로드 및 정규화
         if "T" in self.mode:
-            weak_texture_image = np.array(Image.open(weak_texture_path).convert("L")).astype(np.float32) / 255.0
+            weak_texture_image = np.array(Image.open(weak_texture_path).convert("L")).astype(np.float32)
             weak_texture_image = np.expand_dims(weak_texture_image, axis=-1)  # (H, W, 1)
 
         # 입력 데이터 생성
@@ -71,9 +83,6 @@ class WrinkleDataset(Dataset):
         if "T" in self.mode:
             input_image = np.concatenate((input_image, weak_texture_image), axis=-1)
 
-        # Label 로드 (클래스 인덱스)
-        label = np.array(Image.open(label_path).convert("L")).astype(np.int64)  # 정수형으로 변환
-        label = (label > 0.5).astype(np.int64)  # 이진화, threshold는 필요에 따라 조정
         #print(f"[WrinkleDataset] idx={idx}, AFTER LOAD: input_image={input_image.shape} (type={input_image.dtype}), label={label.shape} (type={label.dtype})")
 
         # Transform 적용
@@ -87,7 +96,7 @@ class WrinkleDataset(Dataset):
             input_image = ToTensorV2()(image=input_image)['image']
             label = ToTensorV2()(image=label)['image']
             #print(f"[WrinkleDataset] idx={idx}, AFTER ToTensorV2: input={input_image.shape} type={input_image.dtype}, label={label.shape} type={label.dtype}")
-
+        # print(f"Before Normalize: min={rgb_image.min()}, max={rgb_image.max()}")
         return input_image, label
 
 def get_train_augmentations():
@@ -98,9 +107,34 @@ def get_train_augmentations():
         A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.2),
         A.OpticalDistortion(distort_limit=0.5, shift_limit=0.5, p=0.2),
         A.Affine(scale=(0.8, 1.2), translate_percent=(0.1, 0.1), rotate=(-15, 15), shear=(-10, 10), p=0.5),
-        A.Normalize(mean=(0.485, 0.456, 0.406, 0.0, 0.0), std=(0.229, 0.224, 0.225, 1.0, 1.0)),  # RGB + Depth + Weak Texture
-        ToTensorV2(transpose_mask=True)
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),  # RGB + Depth + Weak Texture
+        ToTensorV2(transpose_mask=True),
     ])
+
+def get_pre_augmentations():
+    return A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=15, p=0.5),
+        A.ElasticTransform(alpha=1, sigma=50, p=0.2),  # 'affine' 인자 제거
+        A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.2),
+        A.OpticalDistortion(distort_limit=0.5, shift_limit=0.5, p=0.2),
+        A.Affine(scale=(0.8, 1.2), translate_percent=(0.1, 0.1), rotate=(-15, 15), shear=(-10, 10), p=0.5),
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),  # Depth 채널 포함
+        ToTensorV2(transpose_mask=True),
+    ])
+
+def get_texture_augmentations():
+    return A.Compose([
+        A.HorizontalFlip(p=0.5),
+        A.ShiftScaleRotate(shift_limit=0.1, scale_limit=0.1, rotate_limit=15, p=0.5),
+        A.ElasticTransform(alpha=1, sigma=50, p=0.2),  # 'affine' 인자 제거
+        A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.2),
+        A.OpticalDistortion(distort_limit=0.5, shift_limit=0.5, p=0.2),
+        A.Affine(scale=(0.8, 1.2), translate_percent=(0.1, 0.1), rotate=(-15, 15), shear=(-10, 10), p=0.5),
+        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),  # Depth 채널 포함
+        ToTensorV2(transpose_mask=True),
+    ])
+
 
 class WrappedDataset(Dataset):
     def __init__(self, subset, transform=None):

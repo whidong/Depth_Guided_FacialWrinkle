@@ -2,9 +2,12 @@ import os
 import re
 import torch
 from tqdm import tqdm
+import torch.nn.functional as F
 from torch.amp import autocast, GradScaler
 from torch.utils.tensorboard import SummaryWriter
-from utils.metrics import calculate_metrics_gpu
+from utils.metrics import calculate_metrics_gpu, add_noise
+from skimage.metrics import peak_signal_noise_ratio as calculate_psnr
+from skimage.metrics import structural_similarity as calculate_ssim
 
 def train_epoch(loader, model, criterion, optimizer, scaler):
     model.train()
@@ -27,8 +30,28 @@ def train_epoch(loader, model, criterion, optimizer, scaler):
         epoch_loss += loss.item()
     return epoch_loss / len(loader)
 
+def train_denoise_epoch(loader, model, criterion, optimizer, scaler):
+    model.train()
+    epoch_loss = 0
+    for inputs, labels in tqdm(loader, desc="Training"):
+        inputs = inputs.cuda()
+        optimizer.zero_grad()
+        # Forward
+        with autocast(device_type='cuda'):
+            # noise
+            x_noise, noise = add_noise(inputs, noise_type="scaled", noise_std = 0.22)
+            outputs = model(x_noise)
+            loss = criterion(outputs, noise)
 
-def validate_epoch(loader, model, criterion, epoch, scaler, writer=None):
+        # Backward
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        epoch_loss += loss.item()
+    return epoch_loss / len(loader)
+
+def validate_epoch(loader, model, criterion, epoch, writer=None):
     model.eval()
     epoch_loss = 0
     all_preds = []
@@ -69,7 +92,7 @@ def validate_epoch(loader, model, criterion, epoch, scaler, writer=None):
     # Return loss and metrics
     return epoch_loss / len(loader), jsi, f1
 
-def validate_epoch_pretrain(loader, model, criterion, epoch, scaler, writer=None):
+def validate_epoch_pretrain(loader, model, criterion, epoch, writer=None):
     model.eval()
     epoch_loss = 0
     all_preds = []
@@ -77,7 +100,7 @@ def validate_epoch_pretrain(loader, model, criterion, epoch, scaler, writer=None
 
     with torch.no_grad():
         for batch_idx, (inputs, labels) in enumerate(tqdm(loader, desc="Validation")):
-            inputs, labels = input.cuda(), labels.cuda()
+            inputs, labels = inputs.cuda(), labels.cuda()
             
             # Forward
             with autocast(device_type='cuda'):
@@ -109,10 +132,35 @@ def validate_epoch_pretrain(loader, model, criterion, epoch, scaler, writer=None
 
     return epoch_loss / len(loader), acc, f1
 
+def validate_epoch_denoise(loader, model, criterion, epoch, writer=None):
+    model.eval()
+    epoch_loss = 0
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for batch_idx, (inputs, labels) in enumerate(tqdm(loader, desc="Validation")):
+            inputs = inputs.cuda()
+            
+            # Forward
+            with autocast(device_type='cuda'):
+                # noise
+                x_noise, noise = add_noise(inputs, noise_type="scaled", noise_std = 0.22)
+                outputs = model(x_noise)
+                loss = criterion(outputs, noise)
+            epoch_loss += loss.item()
+
+            preds = x_noise - outputs
+            labels = labels
+            all_preds.append(preds.cpu())
+            all_labels.append(inputs.cpu())
+
+            # Save some predictions for visualization (차원 복구)
+            if batch_idx < 5 and writer is not None:
+                save_pretraining_denoise_result(x_noise, preds, noise, outputs, epoch, batch_idx, writer)
 
 
-
-
+    return epoch_loss / len(loader)
 
 def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=None):
     # 배치에서 첫 번째 이미지 사용
@@ -142,6 +190,58 @@ def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=N
     writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image_rgb, epoch)
     writer.add_image(f'Validation/Predicted_Epoch_{epoch}_Batch_{batch_idx}', pred_mask, epoch)
     writer.add_image(f'Validation/GroundTruth_Epoch_{epoch}_Batch_{batch_idx}', true_mask, epoch)
+
+def save_pretraining_denoise_result(inputs, outputs, labels, preds_label, epoch, batch_idx, writer = None):
+    # 배치에서 첫 번째 이미지 사용
+    input_image = inputs[0].cpu().detach()
+    output_image = outputs[0].cpu().detach()
+    label_image = labels[0].cpu().detach()
+    preds_image = preds_label[0].cpu().detach()
+    target_size=(256, 256)
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
+    input_image_denorm  = denormalize_rgb(input_image, mean, std)
+    denoised_image_denorm = denormalize_rgb(output_image, mean, std)
+    label_image_denorm = denormalize_rgb(label_image, mean, std)
+    preds_image_denorm = denormalize_rgb(preds_image, mean, std)
+    # 텐서 형태 출력 (디버깅 용도)
+    # print(f"Input Image Shape: {input_image_denorm.shape}")       # Expected: (3, H, W)
+    # print(f"Denoised Image Shape: {denoised_image_denorm.shape}") # Expected: (3, H, W)
+    # print(f"Label Image Shape: {label_image_denorm.shape}")       # Expected: (3, H, W)
+    # print(f"Input Image Dtype: {input_image_denorm.dtype}")
+    # print(f"Denoised Image Dtype: {denoised_image_denorm.dtype}")
+    # print(f"Label Image Dtype: {label_image_denorm.dtype}")
+
+    # 이미지 리사이즈 (CHW 형식이므로 배치 차원 추가 후 리사이즈 후 다시 제거)
+    input_image_denorm = F.interpolate(input_image_denorm.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    denoised_image_denorm = F.interpolate(denoised_image_denorm.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    label_image_denorm = F.interpolate(label_image_denorm.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    preds_image_denorm = F.interpolate(preds_image_denorm.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+
+    writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image_denorm, epoch, dataformats='CHW')
+    writer.add_image(f'Validation/Predicted_Epoch_{epoch}_Batch_{batch_idx}', denoised_image_denorm, epoch, dataformats='CHW')
+    writer.add_image(f'Validation/GroundTruth_Epoch_{epoch}_Batch_{batch_idx}', label_image_denorm, epoch, dataformats='CHW')
+    writer.add_image(f'Validation/prednoise_Epoch_{epoch}_Batch_{batch_idx}', preds_image_denorm, epoch, dataformats='CHW')
+
+
+def denormalize_rgb(tensor, mean, std):
+    """
+    정규화된 RGB 텐서를 역정규화하여 [0,1] 범위로 되돌립니다.
+
+    Args:
+        tensor (torch.Tensor): 정규화된 이미지 텐서 (C, H, W)
+        mean (list or tuple): 각 채널의 평균값
+        std (list or tuple): 각 채널의 표준편차
+
+    Returns:
+        torch.Tensor: 역정규화된 이미지 텐서 (C, H, W)
+    """
+    mean = torch.tensor(mean).view(-1, 1, 1).to(tensor.device)
+    std = torch.tensor(std).view(-1, 1, 1).to(tensor.device)
+    tensor_denorm = tensor * std + mean
+    tensor_denorm = torch.clamp(tensor_denorm, 0.0, 1.0)
+    return tensor_denorm
+
 
 def save_model(model, optimizer, scheduler, epoch, best_val_loss, filepath='best_model_checkpoint.pth'):
     torch.save({

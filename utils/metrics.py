@@ -70,3 +70,14 @@ def evaluate_model_gpu(loader, model, device='cuda'):
     # GPU에서 메트릭 계산
     jsi, f1, acc, precision, recall = calculate_metrics_gpu(all_labels, all_preds)
     return jsi, f1, acc, precision, recall
+
+def add_noise(x, noise_type = 'simple', noise_std = 0.22):
+
+    noise = torch.randn_like(x)
+
+    if noise_type == "simple":
+        x_noise = x + noise * noise_std
+    elif noise_type == "scaled":
+        x_noise = ((1 + noise_std**2) ** -0.5) * (x + noise * noise_std)
+    return x_noise, noise
+

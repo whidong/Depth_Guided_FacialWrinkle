@@ -1,19 +1,26 @@
 from monai.networks.nets import SwinUNETR, UNet as MONAI_UNet
 from model.Custom_UNet import UNet as CustomUNet
+from model.Custom_swin_unetr import SwinUNETR as Custom_SwinUNETR
+import segmentation_models_pytorch as smp
 
-def create_model(model_type="swin_unetr", img_size=(96, 96, 96), in_channels=1, out_channels=1, feature_size=48, use_checkpoint=True):
+def create_model(model_type="swin_unetr", img_size=(1024, 1024), depth = (2, 2, 6, 2), in_channels=3, out_channels=1, feature_size=48, use_checkpoint=True, use_v2=True, pretrain = False, pretrain_path = "None"):
     """
-    모델 생성 함수
+    Create model
     Parameters:
-        - model_type (str): "swin_unetr" 또는 "unet" 중 선택
-        - img_size (tuple): 입력 이미지 크기
-        - in_channels (int): 입력 채널 수
-        - out_channels (int): 출력 채널 수 (클래스 수)
-        - feature_size (int): Swin UNETR에서 기본 채널 크기
-        - use_checkpoint (bool): Swin UNETR의 메모리 최적화 옵션
+        - model_type (str): swin_unetr, custom_unetr, imagenet_unet, unet, custom_unet
+        - img_size (tuple): Input image resolution
+        - in_channels (int): input channel
+        - out_channels (int): output channel (class)
+        - feature_size (int): Swin UNETR transformer embedding feature size
+        - depth (sequencial: int) : Swin UNETR number of swinTransformer block
+        - pretrain (bool) : Swin UNETR use pretrained imageNet SwinTransformerV2
+        - pretrain_path (str): path of pretrain ckpt file
+        - use_checkpoint (bool): Swin UNETR memory optimize
+        - use_v2 (bool): select Swin UNETR backbone SwinTransformer or SwinTransformerV2
     Returns:
-        - model: 선택한 세그멘테이션 모델
+        - model: select segmentation model
     """
+    # Swin UNETR model
     if model_type.lower() == "swin_unetr":
         return SwinUNETR(
             img_size=img_size,
@@ -21,7 +28,33 @@ def create_model(model_type="swin_unetr", img_size=(96, 96, 96), in_channels=1, 
             out_channels=out_channels,
             feature_size=feature_size,
             use_checkpoint=use_checkpoint,
-            spatial_dims = 2
+            spatial_dims = 2,
+            depths = (2, 2, 2, 2),
+            num_heads = (3, 6, 12, 24),
+        )
+    elif model_type.lower() == "custom_unetr":
+        return Custom_SwinUNETR(
+            img_size=img_size,
+            in_channels = in_channels,
+            out_channels = out_channels,
+            feature_size = feature_size,
+            use_checkpoint = use_checkpoint,
+            spatial_dims = 2,
+            depths = depth,
+            num_heads = (3, 6, 12, 24),
+            use_v2 = use_v2,
+            pretrain = pretrain,
+            pretrain_path = pretrain_path
+        )
+    # UNet model
+    elif model_type.lower() == "imagenet_unet":
+        return smp.Unet(
+            encoder_name = "resnet50",
+            encoder_weight = "imagenet",
+            decoder_interpolation_mode ="bilinear",
+            decoder_channels = (256, 128, 64, 32, 16),
+            in_channels = in_channels,
+            classes = out_channels,
         )
     elif model_type.lower() == "unet":
         return MONAI_UNet(
