@@ -15,10 +15,27 @@ File Structure
   ├── U_net.ipynb                      # Pretraining
   ├── Unet_fine_final.ipynb            # Finetuning
   ├── trained_unet_full_checkpoint.pth # Pretrain checkpoint
-├── Masking_Face.ipynb                 # Face Masking
-├── depth_map.ipynb                    # transform Depth map Gray scale
-├── depth_masking.ipynb                # Masking Depth map
-├── Merge_face_masking.ipynb           # Face masking RGB image
+├── data
+  ├── depth_masking
+  ├── finetuning
+    ├── depth_masking
+    ├── manual_wrinkle_masks
+    ├── masked_face_images
+    ├── weak_wrinkle_mask
+  ├── images 1024x1024
+  ├── manual_wrinkle_masks
+  ├── weak_wrinkle_image
+  ├── weak_wrinkle_masks
+├── datasets
+  ├── __init__.py
+  ├── dataset.py
+├── utils
+  ├── __init__.py
+  ├── custom_scheduler.py
+  ├── metrics.py
+  ├── train_utils.py
+├── loss
+  ├── dice_loss
 ├── README.md 
 ```
 experiment - ing ~
