@@ -17,9 +17,9 @@ File Structure
   ├── Custom_swin_unetr.py
   ├── swin_unetr.py
 ├── experiments
-  ├── U_net.ipynb                      # Pretraining
-  ├── Unet_fine_final.ipynb            # Finetuning
-  ├── trained_unet_full_checkpoint.pth # Pretrain checkpoint
+  ├── train.py                     
+  ├── pretrain.py      
+  ├── test.py
 ├── data
   ├── depth_masking
   ├── finetuning
