@@ -91,7 +91,7 @@ def main_experiment(run_id, seed, mode, batch_size = 10):
 
     train_transform = get_train_augmentations()
     val_transform = A.Compose([
-        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        A.Normalize(mean=(0.485, 0.456, 0.406, 0, 0), std=(0.229, 0.224, 0.225, 1, 1)),
         ToTensorV2(transpose_mask=True)
     ])
 
