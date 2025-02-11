@@ -51,6 +51,26 @@ def train_denoise_epoch(loader, model, criterion, optimizer, scaler):
         epoch_loss += loss.item()
     return epoch_loss / len(loader)
 
+def train_mask_epoch(loader, model, optimizer, scaler):
+    model.train()
+    epoch_loss = 0
+    for inputs, masks in tqdm(loader, desc="Training"):
+        inputs, masks = inputs.cuda(), masks.cuda()
+
+        optimizer.zero_grad()
+
+        # Forward
+        with autocast(device_type='cuda'):
+            loss, result = model(inputs, masks)
+        # print(loss, type(loss))
+        # Backward
+        scaler.scale(loss).backward()
+        scaler.step(optimizer)
+        scaler.update()
+
+        epoch_loss += loss.item()
+    return epoch_loss / len(loader)
+
 def validate_epoch(loader, model, criterion, epoch, writer=None):
     model.eval()
     epoch_loss = 0
@@ -159,8 +179,58 @@ def validate_epoch_denoise(loader, model, criterion, epoch, writer=None):
             if batch_idx < 5 and writer is not None:
                 save_pretraining_denoise_result(x_noise, preds, noise, outputs, epoch, batch_idx, writer)
 
-
     return epoch_loss / len(loader)
+
+def validate_epoch_mask(loader, model, epoch, writer=None):
+    model.eval()
+    epoch_loss = 0
+    all_preds = []
+    all_labels = []
+
+    with torch.no_grad():
+        for batch_idx, (inputs, masks) in enumerate(tqdm(loader, desc="Validation")):
+            inputs, masks = inputs.cuda(), masks.cuda()
+
+            with autocast(device_type='cuda'):
+                # Forward
+                loss, outputs = model(inputs, masks)
+            epoch_loss += loss.item()
+
+            preds = torch.argmax(outputs, dim=1)
+            all_preds.append(preds)
+            all_labels.append(masks)
+
+            # Save some predictions for visualization (차원 복구)
+            if batch_idx < 5 and writer is not None:
+                save_pretraining_mask_results(inputs, outputs, masks, epoch, batch_idx, writer)
+        # Calculate metrics
+    return epoch_loss / len(loader)
+
+def save_pretraining_mask_results(inputs, outputs, labels, epoch, batch_idx, writer=None):
+    # 배치에서 첫 번째 이미지 사용
+    input_image = inputs[0].cpu().detach()
+    output_image = outputs[0].cpu().detach()
+    label_image = labels[0].cpu().detach()
+    target_size=(256, 256)
+
+    label_image = label_image.float()
+
+    if label_image.dim() == 2:
+        label_image = label_image.unsqueeze(0)   # shape: [1, H, W]
+    input_image = denormalize_rgb(input_image, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+    output_image    = denormalize_rgb(output_image, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+    # label_image     = denormalize_rgb(label_image, (0.485, 0.456, 0.406), (0.229, 0.224, 0.225))
+
+    input_image = F.interpolate(input_image.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    output_image = F.interpolate(output_image.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    label_image = F.interpolate(label_image.unsqueeze(0).float(), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    
+    expanded_mask = label_image.repeat(3, 1, 1)
+    output_image = (1 - expanded_mask) * input_image + expanded_mask * output_image
+    # TensorBoard에 이미지 추가
+    writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image, epoch)
+    writer.add_image(f'Validation/Predicted_Epoch_{epoch}_Batch_{batch_idx}', output_image, epoch)
+    writer.add_image(f'Validation/GroundTruth_Epoch_{epoch}_Batch_{batch_idx}', label_image, epoch)
 
 def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=None):
     # 배치에서 첫 번째 이미지 사용

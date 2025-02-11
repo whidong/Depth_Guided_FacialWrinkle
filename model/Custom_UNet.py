@@ -76,7 +76,7 @@ class Up(nn.Module):
         # print(f"UP After x1 :{x1.shape}, x2 : {x2.shape}")
         # channel cat
         x = torch.cat([x2, x1], dim=1)
-        print(f"concat x :{x.shape}")
+        # print(f"concat x :{x.shape}")
         # DoubleConv
         return self.conv(x)
 

@@ -1,6 +1,7 @@
 from monai.networks.nets import SwinUNETR, UNet as MONAI_UNet
 from model.Custom_UNet import UNet as CustomUNet
 from model.Custom_swin_unetr import SwinUNETR as Custom_SwinUNETR
+from .simMIM import SwinTransformerForSimMIM, SimMIM
 import segmentation_models_pytorch as smp
 
 def create_model(model_type="swin_unetr", img_size=(1024, 1024), depth = (2, 2, 6, 2), in_channels=3, out_channels=1, feature_size=48, use_checkpoint=True, use_v2=True, pretrain = False, pretrain_path = "None"):
@@ -46,6 +47,19 @@ def create_model(model_type="swin_unetr", img_size=(1024, 1024), depth = (2, 2, 
             pretrain = pretrain,
             pretrain_path = pretrain_path
         )
+    elif model_type.lower() == "maked_swin":
+        encoder = SwinTransformerForSimMIM(
+            img_size=img_size,
+            in_chans = in_channels,
+            embed_dim = feature_size,
+            use_checkpoint = use_checkpoint,
+            spatial_dims = 2,
+            depths = (2, 2, 2, 2),
+            num_heads = (3, 6, 12, 24),
+        )
+        encoder_stride = 64
+        model = SimMIM(encoder, encoder_stride)
+        return model
     # UNet model
     elif model_type.lower() == "imagenet_unet":
         return smp.Unet(

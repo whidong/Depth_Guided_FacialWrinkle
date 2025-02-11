@@ -521,7 +521,8 @@ class SwinTransformer(nn.Module):
                  fused_window_process=False, 
                  **kwargs):
         super().__init__()
-
+        self.in_chans = in_chans
+        self.patch_size = patch_size
         self.num_classes = num_classes
         self.num_layers = len(depths)
         self.embed_dim = embed_dim
@@ -567,7 +568,7 @@ class SwinTransformer(nn.Module):
                                fused_window_process=fused_window_process)
             self.layers.append(layer)
 
-        # self.norm = norm_layer(self.num_features)
+        self.norm = norm_layer(self.num_features)
         # self.avgpool = nn.AdaptiveAvgPool1d(1)
         # self.head = nn.Linear(self.num_features, num_classes) if num_classes > 0 else nn.Identity()
 

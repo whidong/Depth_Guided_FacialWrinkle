@@ -4,6 +4,7 @@ import numpy as np
 from PIL import Image
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
+from .data_simmim import SimMIMTransform
 
 class WrinkleDataset(Dataset):
     def __init__(self, rgb_paths, depth_paths=None, weak_texture_paths=None, label_paths=None, transform=None, 
@@ -67,13 +68,14 @@ class WrinkleDataset(Dataset):
         # Depth 로드 및 정규화
         if "D" in self.mode:
             depth_image = np.array(Image.open(depth_path).convert("L")).astype(np.float32)
-            depth_image = (depth_image - self.min_depth) / (self.max_depth - self.min_depth)
-            depth_image = np.clip(depth_image, 0, 1)
+
+            # depth_image = (depth_image - self.min_depth) / (self.max_depth - self.min_depth)
+            # depth_image = np.clip(depth_image, 0, 1)
             depth_image = np.expand_dims(depth_image, axis=-1)  # (H, W, 1)
         
         # Weak Texture 로드 및 정규화
         if "T" in self.mode:
-            weak_texture_image = np.array(Image.open(weak_texture_path).convert("L")).astype(np.float32)
+            weak_texture_image = np.array(Image.open(weak_texture_path).convert("L"))
             weak_texture_image = np.expand_dims(weak_texture_image, axis=-1)  # (H, W, 1)
 
         # 입력 데이터 생성
@@ -107,7 +109,7 @@ def get_train_augmentations():
         A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.2),
         A.OpticalDistortion(distort_limit=0.5, shift_limit=0.5, p=0.2),
         A.Affine(scale=(0.8, 1.2), translate_percent=(0.1, 0.1), rotate=(-15, 15), shear=(-10, 10), p=0.5),
-        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),  # RGB + Depth + Weak Texture
+        A.Normalize(mean=(0.485, 0.456, 0.406, 0, 0), std=(0.229, 0.224, 0.225, 1, 1)),  # RGB + Depth + Weak Texture
         ToTensorV2(transpose_mask=True),
     ])
 
@@ -119,7 +121,7 @@ def get_pre_augmentations():
         A.GridDistortion(num_steps=5, distort_limit=0.3, p=0.2),
         A.OpticalDistortion(distort_limit=0.5, shift_limit=0.5, p=0.2),
         A.Affine(scale=(0.8, 1.2), translate_percent=(0.1, 0.1), rotate=(-15, 15), shear=(-10, 10), p=0.5),
-        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),  # Depth 채널 포함
+        A.Normalize(mean=(0.485, 0.456, 0.406, 0), std=(0.229, 0.224, 0.225, 1)),  # Depth 채널 포함
         ToTensorV2(transpose_mask=True),
     ])
 
