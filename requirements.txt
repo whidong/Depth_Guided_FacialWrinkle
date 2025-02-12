@@ -1,0 +1,7 @@
+pytorch == 2.0.1
+pytorch-cuda == 11.8
+monai == 1.4.0
+segmentation_models_pytorch == 0.4.0
+timm == 0.6.13
+albumentations == 1.4.21
+einops == 0.8.0
