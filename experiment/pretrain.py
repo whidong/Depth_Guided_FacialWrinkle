@@ -261,7 +261,7 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
                 patience_counter = 0
             else:
                 patience_counter += 1
-                print(f"[Run {run_id+1}] No improvement. Patience counter: {patience_counter}/{patience} Validation Loss: {val_loss:.6f} Acc: {val_acc:.6f}")
+                print(f"[Run {run_id+1}] No improvement. Patience counter: {patience_counter}/{patience} Validation Loss: {val_loss:.6f}")
 
     writer.close()
     print(f"[Run {run_id+1}] Finetuning Completed.")
