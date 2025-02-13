@@ -174,8 +174,8 @@ def validate_epoch_denoise(loader, model, criterion, epoch, writer=None):
 
             preds = x_noise - outputs
             labels = labels
-            all_preds.append(preds.cpu())
-            all_labels.append(inputs.cpu())
+            #all_preds.append(preds.cpu())
+            #all_labels.append(inputs.cpu())
 
             # Save some predictions for visualization (차원 복구)
             if batch_idx < 5 and writer is not None:
@@ -186,8 +186,8 @@ def validate_epoch_denoise(loader, model, criterion, epoch, writer=None):
 def validate_epoch_mask(loader, model, epoch, writer=None):
     model.eval()
     epoch_loss = 0
-    all_preds = []
-    all_labels = []
+    #all_preds = []
+    #all_labels = []
 
     with torch.no_grad():
         for batch_idx, (inputs, masks) in enumerate(tqdm(loader, desc="Validation")):
@@ -199,8 +199,8 @@ def validate_epoch_mask(loader, model, epoch, writer=None):
             epoch_loss += loss.item()
 
             preds = torch.argmax(outputs, dim=1)
-            all_preds.append(preds)
-            all_labels.append(masks)
+            #all_preds.append(preds)
+            #all_labels.append(masks)
 
             # Save some predictions for visualization (차원 복구)
             if batch_idx < 5 and writer is not None:
