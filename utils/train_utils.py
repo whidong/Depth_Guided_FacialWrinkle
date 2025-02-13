@@ -96,10 +96,12 @@ def validate_epoch(loader, model, criterion, epoch, writer=None):
             if batch_idx < 5 and writer is not None:
                 save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer)
 
+            torch.cuda.empty_cache()
+
         # Calculate metrics
-    all_preds = torch.cat(all_preds, dim=0).cuda()
-    all_labels = torch.cat(all_labels, dim=0).cuda()
-    jsi, f1, acc, precision, recall = calculate_metrics_gpu(all_labels, all_preds)
+    all_preds = torch.cat(all_preds, dim=0)
+    all_labels = torch.cat(all_labels, dim=0)
+    jsi, f1, acc, precision, recall = calculate_metrics_gpu(all_labels.cuda(), all_preds.cuda())
     
     # Log metrics to TensorBoard
     if writer is not None:
@@ -130,27 +132,27 @@ def validate_epoch_pretrain(loader, model, criterion, epoch, writer=None):
 
             preds = torch.argmax(outputs, dim=1)
             labels = labels.squeeze(1)
-            all_preds.append(preds)
-            all_labels.append(labels)
+            all_preds.append(preds.detach().cpu())
+            all_labels.append(labels.detach().cpu())
 
             # Save some predictions for visualization (차원 복구)
             if batch_idx < 5 and writer is not None:
                 save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer)
 
         # Calculate metrics
-    all_preds = torch.cat(all_preds, dim=0).cuda()
-    all_labels = torch.cat(all_labels, dim=0).cuda()
-    jsi, f1, acc, precision, recall = calculate_metrics_gpu(all_labels, all_preds)
+    #all_preds = torch.cat(all_preds, dim=0)
+    #all_labels = torch.cat(all_labels, dim=0)
+    #jsi, f1, acc, precision, recall = calculate_metrics_gpu(all_labels, all_preds)
 
     # Log metrics to TensorBoard
-    if writer is not None:
-        writer.add_scalar('Metrics/JSI', jsi, epoch)
-        writer.add_scalar('Metrics/F1-Score', f1, epoch)
-        writer.add_scalar('Metrics/Accuracy', acc, epoch)
-        writer.add_scalar('Metrics/Precision', precision, epoch)
-        writer.add_scalar('Metrics/Recall', recall, epoch)
+    #if writer is not None:
+    #    writer.add_scalar('Metrics/JSI', jsi, epoch)
+    #    writer.add_scalar('Metrics/F1-Score', f1, epoch)
+    #    writer.add_scalar('Metrics/Accuracy', acc, epoch)
+    #    writer.add_scalar('Metrics/Precision', precision, epoch)
+    #    writer.add_scalar('Metrics/Recall', recall, epoch)
 
-    return epoch_loss / len(loader), acc, f1
+    return epoch_loss / len(loader)
 
 def validate_epoch_denoise(loader, model, criterion, epoch, writer=None):
     model.eval()
@@ -237,12 +239,16 @@ def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=N
     input_image = inputs[0].cpu().detach()
     output_image = outputs[0].cpu().detach()
     label_image = labels[0].cpu().detach()
+    target_size=(256, 256)
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
     
     # 입력 이미지의 RGB 채널만 사용
     input_image_rgb = input_image[:3]  # [3, H, W]
-    
+    input_image_denorm  = denormalize_rgb(input_image_rgb, mean, std)
+    input_image_denorm = F.interpolate(input_image_denorm.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
     # 시각화를 위해 [0, 1] 범위로 스케일링
-    input_image_rgb = (input_image_rgb - input_image_rgb.min()) / (input_image_rgb.max() - input_image_rgb.min())
+    # input_image_rgb = (input_image_rgb - input_image_rgb.min()) / (input_image_rgb.max() - input_image_rgb.min())
     
     # 예측 마스크: torch.argmax을 사용하여 클래스 인덱스 추출
     pred_mask = torch.argmax(output_image, dim=0).float()  # [H, W]
@@ -257,7 +263,7 @@ def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=N
     true_mask = (true_mask - true_mask.min()) / (true_mask.max() - true_mask.min())
     
     # TensorBoard에 이미지 추가
-    writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image_rgb, epoch)
+    writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image_denorm, epoch)
     writer.add_image(f'Validation/Predicted_Epoch_{epoch}_Batch_{batch_idx}', pred_mask, epoch)
     writer.add_image(f'Validation/GroundTruth_Epoch_{epoch}_Batch_{batch_idx}', true_mask, epoch)
 

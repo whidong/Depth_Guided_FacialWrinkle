@@ -177,8 +177,8 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
         pass
 
     if mode == "masked":
-        train_loader = build_loader_simmim(data_path=train_rgb_paths, batch_size=batch_size, shuffle=True, num_workers=4, validation=False)
-        val_loader = build_loader_simmim(data_path=val_rgb_paths, batch_size=batch_size, shuffle=False, num_workers=4, validation=True)
+        train_loader = build_loader_simmim(data_path=train_rgb_paths, batch_size=batch_size, shuffle=True, num_workers=8, validation=False)
+        val_loader = build_loader_simmim(data_path=val_rgb_paths, batch_size=batch_size, shuffle=False, num_workers=8, validation=True)
     else:
         # 데이터셋 생성
         train_dataset = WrinkleDataset(train_rgb_paths, train_depth_paths, label_paths = train_label_paths, transform=train_transform, min_depth=min_depth, max_depth=max_depth, mode = mode)
@@ -186,8 +186,8 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
 
         # 데이터로더 생성
         
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=4)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
+        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=8)
+        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=8)
 
     tensorboard_dir = "./tensorboard"
     model_pth_dir = "./checkpoint"
@@ -223,7 +223,7 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
             val_loss = validate_epoch_mask(val_loader, model, epoch + 1, writer = writer)
         else:
             train_loss = train_epoch(train_loader, model, criterion, optimizer, scaler)
-            val_loss, val_acc, val_f1 = validate_epoch_pretrain(val_loader, model, criterion, epoch + 1, writer = writer)
+            val_loss = validate_epoch_pretrain(val_loader, model, criterion, epoch + 1, writer = writer)
 
         scheduler.step(epoch)
         current_lr = optimizer.param_groups[0]['lr']
@@ -257,7 +257,7 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
                 best_val_loss_unet = val_loss
                 from utils.train_utils import save_model
                 save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/best_pretrain_{mode}_{run_id}_seed{seed}.pth')
-                print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f} Acc: {val_acc:.6f}")
+                print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f}")
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -272,13 +272,13 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
 def main():
     epochs = 300
     run_seeds = [42, 42, 42, 42, 42, 42] # pretrain model seed
-    mode = ["RGB", "RGBD","denoise","RGB", "RGBD","masked"] # pretrain model mode
+    mode = ["RGB","RGBD","denoise","RGB", "RGBD","masked"] # pretrain model mode
     results = [] # pretrain result
-    batch_size = 26
-    model_type = ["custom_unet", "custom_unet", "custom_unet","custom_unetr","custom_unetr","maked_swin"]
+    batch_size = [36, 36, 36, 36, 36, 36]
+    model_type = ["custom_unet","custom_unet", "custom_unet","custom_unetr","custom_unetr","maked_swin"]
 
     for run_id, seed in enumerate(run_seeds):
-        val_loss = main_pretrain(model_type[run_id], run_id, mode[run_id], seed, batch_size, epochs)
+        val_loss = main_pretrain(model_type[run_id], run_id, mode[run_id], seed, batch_size[run_id], epochs)
         results.append((val_loss))
 
     print("=== Final Results of Runs ===")
