@@ -239,26 +239,29 @@ def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=N
     input_image = inputs[0].cpu().detach()
     output_image = outputs[0].cpu().detach()
     label_image = labels[0].cpu().detach()
-    target_size=(256, 256)
-    mean = [0.485, 0.456, 0.406]
-    std = [0.229, 0.224, 0.225]
+    #target_size=(256, 256)
+    #mean = [0.485, 0.456, 0.406]
+    #std = [0.229, 0.224, 0.225]
     
     # 입력 이미지의 RGB 채널만 사용
     input_image_rgb = input_image[:3]  # [3, H, W]
-    input_image_denorm  = denormalize_rgb(input_image_rgb, mean, std)
-    input_image_denorm = F.interpolate(input_image_denorm.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    #input_image_denorm  = denormalize_rgb(input_image_rgb, mean, std)
+    #input_image_denorm = F.interpolate(input_image_denorm.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
+    
     # 시각화를 위해 [0, 1] 범위로 스케일링
-    # input_image_rgb = (input_image_rgb - input_image_rgb.min()) / (input_image_rgb.max() - input_image_rgb.min())
+    input_image_rgb = (input_image_rgb - input_image_rgb.min()) / (input_image_rgb.max() - input_image_rgb.min())
     
     # 예측 마스크: torch.argmax을 사용하여 클래스 인덱스 추출
-    pred_mask = torch.argmax(output_image, dim=0).float()  # [H, W]
-    pred_mask = pred_mask.unsqueeze(0)  # [1, H, W]
+    #pred_mask = torch.argmax(output_image, dim=0).float()  # [H, W]
+    # pred_mask = pred_mask.unsqueeze(0)  # [1, H, W]
+    pred_mask = output_image.unsqueeze(0)
     # 필요에 따라 스케일링 (이미 이진화된 경우 생략 가능)
     pred_mask = (pred_mask - pred_mask.min()) / (pred_mask.max() - pred_mask.min())
     
     # 실제 마스크: 채널 차원 제거 후 채널 차원 추가
-    true_mask = label_image.squeeze(0).float()  # [H, W]
-    true_mask = true_mask.unsqueeze(0)  # [1, H, W]
+    #true_mask = label_image.squeeze(0).float()  # [H, W]
+    # true_mask = true_mask.unsqueeze(0)  # [1, H, W]
+    true_mask = label_image.unsqueeze(0)
     # 필요에 따라 스케일링 (이미 이진화된 경우 생략 가능)
     true_mask = (true_mask - true_mask.min()) / (true_mask.max() - true_mask.min())
     
