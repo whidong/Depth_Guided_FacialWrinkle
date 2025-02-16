@@ -236,7 +236,7 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
             if val_loss < best_val_loss_unet:
                 best_val_loss_unet = val_loss
                 from utils.train_utils import save_model
-                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/best_pretrain_{mode}_{run_id}_seed{seed}.pth')
+                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/best_pretrain_{model_type}_{mode}_{run_id}_seed{seed}.pth')
                 print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f}")
                 patience_counter = 0
             else:
@@ -246,7 +246,7 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
             if val_loss < best_val_loss_unet:
                 best_val_loss_unet = val_loss
                 from utils.train_utils import save_model
-                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/best_pretrain_{mode}_{run_id}_seed{seed}.pth')
+                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/best_pretrain_{model_type}_{mode}_{run_id}_seed{seed}.pth')
                 print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f}")
                 patience_counter = 0
             else:
@@ -256,7 +256,7 @@ def main_pretrain(model_type, run_id, mode, seed, batch_size = 23, epochs = 150)
             if val_loss < best_val_loss_unet:
                 best_val_loss_unet = val_loss
                 from utils.train_utils import save_model
-                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/best_pretrain_{mode}_{run_id}_seed{seed}.pth')
+                save_model(model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/best_pretrain_{model_type}_{mode}_{run_id}_seed{seed}.pth')
                 print(f"[Run {run_id+1}] Model saved based on Validation Loss: {val_loss:.6f}")
                 patience_counter = 0
             else:
