@@ -117,8 +117,8 @@ def validate_epoch(loader, model, criterion, epoch, writer=None):
 def validate_epoch_pretrain(loader, model, criterion, epoch, writer=None):
     model.eval()
     epoch_loss = 0
-    all_preds = []
-    all_labels = []
+    #all_preds = []
+    #all_labels = []
 
     with torch.no_grad():
         for batch_idx, (inputs, labels) in enumerate(tqdm(loader, desc="Validation")):
@@ -130,10 +130,10 @@ def validate_epoch_pretrain(loader, model, criterion, epoch, writer=None):
                 loss = criterion(outputs, labels)
             epoch_loss += loss.item()
 
-            preds = torch.argmax(outputs, dim=1)
+            #preds = torch.argmax(outputs, dim=1)
             labels = labels.squeeze(1)
-            all_preds.append(preds.detach().cpu())
-            all_labels.append(labels.detach().cpu())
+            #all_preds.append(preds.detach().cpu())
+            #all_labels.append(labels.detach().cpu())
 
             # Save some predictions for visualization (차원 복구)
             if batch_idx < 5 and writer is not None:
@@ -254,7 +254,12 @@ def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=N
     # 예측 마스크: torch.argmax을 사용하여 클래스 인덱스 추출
     #pred_mask = torch.argmax(output_image, dim=0).float()  # [H, W]
     # pred_mask = pred_mask.unsqueeze(0)  # [1, H, W]
-    pred_mask = output_image.unsqueeze(0)
+    if output_image.ndim == 4:
+        pred_mask = output_image.squeeze(0)  # 결과: (1, H, W)
+    elif output_image.ndim == 2:
+        pred_mask = output_image.unsqueeze(0)
+    else:
+        pred_mask = output_image
     # 필요에 따라 스케일링 (이미 이진화된 경우 생략 가능)
     pred_mask = (pred_mask - pred_mask.min()) / (pred_mask.max() - pred_mask.min())
     
