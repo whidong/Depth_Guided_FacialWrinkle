@@ -271,7 +271,7 @@ def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=N
     true_mask = (true_mask - true_mask.min()) / (true_mask.max() - true_mask.min())
     
     # TensorBoard에 이미지 추가
-    writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image_denorm, epoch)
+    writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image_rgb, epoch)
     writer.add_image(f'Validation/Predicted_Epoch_{epoch}_Batch_{batch_idx}', pred_mask, epoch)
     writer.add_image(f'Validation/GroundTruth_Epoch_{epoch}_Batch_{batch_idx}', true_mask, epoch)
 
