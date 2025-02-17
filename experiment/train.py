@@ -24,7 +24,7 @@ from torch.utils.data import random_split
 import torch.nn as nn
 import torch.optim as optim
 
-def main_experiment(run_id, seed, mode, batch_size = 10):
+def main_experiment(run_id, seed, mode, model_type, batch_size = 10):
     """
     한 번의 학습+검증 프로세스를 실행하고, 결과를 반환.
     run_id : 현재 실행 중인 반복 실험 번호
@@ -36,34 +36,60 @@ def main_experiment(run_id, seed, mode, batch_size = 10):
     generator = torch.Generator().manual_seed(42)
 
     print(f"Starting experiment run_id={run_id}, seed={seed}")
+    
+    if model_type == "custom_unet":
+        if mode == "RGB": #imagenet or denoise
+            in_ch = 3
+            out_ch = 2
+        elif mode == "RGBT":
+            in_ch = 4
+            out_ch = 2
+        elif mode == "RGBDT":
+            in_ch = 5
+            out_ch = 2
+        elif mode == "denoise":
+            in_ch = 3
+            out_ch = 2
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
 
-    if mode == "RGB":
-        in_ch = 3
-        out_ch = 2
-    elif mode == "RGBT":
-        in_ch = 4
-        out_ch = 2
-    elif mode == "RGBDT":
-        in_ch = 5
-        out_ch = 2
-    elif mode == "denoise":
-        in_ch = 3
-        out_ch = 3
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+         unet_fine_model = create_model(
+            model_type="custom_unet",
+            in_channels=in_ch,   # 입력 채널 수: RGB(3) + Depth(1) + Weak Texture Map(1)
+            out_channels=out_ch   # 출력 채널 수: Wrinkle(1) + Background(1)
+        )
+        unet_fine_model = nn.DataParallel(unet_fine_model).cuda()
+    elif model_type == "custom_unetr":
+        if mode == "RGB": #imagenet or mask
+            in_ch = 3
+            out_ch = 2
+        elif mode == "RGBT":
+            in_ch = 4
+            out_ch = 2
+        elif mode == "RGBDT":
+            in_ch = 5
+            out_ch = 2
+        else:
+            raise ValueError(f"Unknown mode: {mode}")
+            
+        unetr_fine_model = create(
+            model_type="custom_unetr",
+            img_size = (1024, 1024),
+            in_channels = in_ch,
+            out_channels = out_ch,
+            feature_size = 48,
+            use_checkpoint = True,
+            depth = (2, 2, 2, 2),
+            use_v2 = False)
+        unetr_fine_model = nn.DataParallel(unetr_fine_model).cuda()
+            
 
-    unet_fine_model = create_model(
-        model_type="custom_unet",
-        in_channels=in_ch,   # 입력 채널 수: RGB(3) + Depth(1) + Weak Texture Map(1)
-        out_channels=out_ch   # 출력 채널 수: Wrinkle(1) + Background(1)
-    )
-    unet_fine_model = nn.DataParallel(unet_fine_model).cuda()
 
     # 경로 설정
-    rgb_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/masked_face_images"
-    depth_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/depth_masking"
-    weak_texture_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/weak_wrinkle_mask"
-    label_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/manual_wrinkle_masks"
+    rgb_dir = "../data/finetuning/masked_face_images"
+    depth_dir = "../data/finetuning/depth_masking"
+    weak_texture_dir = "../data/finetuning/weak_wrinkle_mask"
+    label_dir = "../data/finetuning/manual_wrinkle_masks"
 
     # 파일 리스트
     rgb_paths = sorted(glob.glob(os.path.join(rgb_dir, "*.png")))
@@ -108,9 +134,16 @@ def main_experiment(run_id, seed, mode, batch_size = 10):
     optimizer = optim.AdamW(unet_fine_model.parameters(), lr=0.0001, weight_decay=0.05, betas=(0.9, 0.999))
     scheduler = CustomCosineAnnealingWarmRestarts(optimizer=optimizer, T_0=50, T_mult=2, eta_min=0, eta_max=0.0001, decay_factor=0.9, start_epoch=0)
 
+    tensorboard_dir = "./tensorboard/finetuning"
+    model_pth_dir = "./checkpoint/finetuning"
+    if not os.path.exists(tensorboard_dir):
+            os.makedirs(tensorboard_dir)
+    if not os.path.exists(model_pth_dir):
+            os.makedirs(model_pth_dir)
+        
     epochs = 150
     scaler = GradScaler()
-    writer = SummaryWriter(log_dir=f'unet_runs/unet_fintuning_RGB0206_{run_id}_seed{seed}')
+    writer = SummaryWriter(log_dir=f'./tensorboard/finetuning/{model_type}_fintuning_{mode}_{run_id}_seed{seed}')
     best_val_loss_unet = float('inf')
     best_val_jsi = 0.0
     patience = 15
@@ -133,7 +166,7 @@ def main_experiment(run_id, seed, mode, batch_size = 10):
             best_val_loss_unet = val_loss
             best_val_jsi = val_jsi
             from utils.train_utils import save_model
-            save_model(unet_fine_model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./no_RDT/best_unet_finetuning_RGB0206_{run_id}_seed{seed}.pth')
+            save_model(unet_fine_model, optimizer, scheduler, epoch + 1, best_val_loss_unet, f'./checkpoint/finetuning/best_{model_type}_finetuning_{mode}_{run_id}_seed{seed}.pth')
             print(f"[Run {run_id+1}] Model saved based on Validation JSI: {val_jsi:.4f} and Loss: {val_loss:.6f}")
             patience_counter = 0
         else:
@@ -150,9 +183,10 @@ def main():
     run_seeds = [42,2025,2024]
     mode = "RGB"
     batch_size = 10
+    model_type = "custom_unet"
     results = []
     for run_id, seed in enumerate(run_seeds):
-        val_loss, val_jsi = main_experiment(run_id, seed, mode, batch_size)
+        val_loss, val_jsi = main_experiment(run_id, seed, mode, model_type,batch_size)
         results.append((val_loss, val_jsi))
 
     print("=== Final Results of 3 Runs ===")
