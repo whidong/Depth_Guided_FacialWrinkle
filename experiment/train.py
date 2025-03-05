@@ -195,13 +195,13 @@ def main():
             "modes": {
                 "RGB": "./checkpoint/pretrain/best_pretrain_unet_RGB_seed42.pth",
                 "RGBT": "./checkpoint/pretrain/best_pretrain_unet_RGB_seed42.pth",
-                "RGBDT": "./checkpoint/pretrain/best_pretrain_unet_RGBD_seed42.pth",
-                "denoise": "./checkpoint/pretrain/best_pretrain_unet_denoise_seed42.pth"
+                "RGBDT": "./checkpoint/pretrain/best_pretrain_unet_RGBD_seed42.pth"
             },
             "epochs": 3
         },
         "imagenet_unet": {
             "modes": {
+                "denoise": "./checkpoint/pretrain/best_pretrain_unet_denoise_seed42.pth",
                 "RGB": None
             },
             "epochs": 3
