@@ -66,7 +66,7 @@ def create_model(model_type="swin_unetr", img_size=(1024, 1024), depth = (2, 2, 
             encoder_name = "resnet50",
             encoder_weight = "imagenet",
             decoder_interpolation_mode ="bilinear",
-            decoder_channels = (256, 128, 64, 32, 16),
+            decoder_channels = (512, 256, 128, 64, 32),
             in_channels = in_channels,
             classes = out_channels,
         )
