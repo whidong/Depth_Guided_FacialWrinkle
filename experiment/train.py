@@ -197,14 +197,14 @@ def main():
                 "RGBT": "./checkpoint/pretrain/best_pretrain_unet_RGB_seed42.pth",
                 "RGBDT": "./checkpoint/pretrain/best_pretrain_unet_RGBD_seed42.pth"
             },
-            "epochs": 3
+            "epochs": 150
         },
         "imagenet_unet": {
             "modes": {
                 "denoise": "./checkpoint/pretrain/best_pretrain_unet_denoise_seed42.pth",
                 "RGB": None
             },
-            "epochs": 3
+            "epochs": 150
         },
         "custom_unetr": {
             "modes": {
@@ -214,11 +214,11 @@ def main():
                 "image": "./checkpoint/pretrain/best_pretrain_swin_unetr_image_seed42.pth",
                 "mask" : "./checkpoint/pretrain/best_pretrain_swin_unetr_simmim_r_seed42.pth"
             },
-            "epochs": 3
+            "epochs": 300
         }
     }
     
-    batch_size = 4
+    batch_size = 14
     results = []
     
     for model_type, settings in experiments.items():
