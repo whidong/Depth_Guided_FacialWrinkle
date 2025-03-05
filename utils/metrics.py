@@ -2,6 +2,7 @@ import torch
 import numpy as np
 from tqdm import tqdm
 from PIL import Image
+import gc
 
 def calculate_metrics_gpu(y_true, y_pred):
     """
@@ -29,6 +30,8 @@ def calculate_metrics_gpu(y_true, y_pred):
 
     # Accuracy
     acc = (tp + tn) / (tp + tn + fp + fn + 1e-8)
+    del tp, fp, fn, tn
+    gc.collect()
 
     return jsi.item(), f1.item(), acc.item(), precision.item(), recall.item()
 
