@@ -94,7 +94,7 @@ def validate_epoch(loader, model, criterion, epoch, writer=None):
 
             # Save some predictions for visualization (차원 복구)
             if batch_idx < 5 and writer is not None:
-                save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer)
+                save_finetuning_results(inputs, outputs, labels, epoch, batch_idx, writer)
 
         # Calculate metrics
     all_preds = torch.cat(all_preds, dim=0).cuda()
@@ -231,7 +231,38 @@ def save_pretraining_mask_results(inputs, outputs, labels, epoch, batch_idx, wri
     writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image, epoch)
     writer.add_image(f'Validation/Predicted_Epoch_{epoch}_Batch_{batch_idx}', output_image, epoch)
     writer.add_image(f'Validation/GroundTruth_Epoch_{epoch}_Batch_{batch_idx}', label_image, epoch)
-
+    
+def save_finetuning_results(inputs, outputs, labels, epoch, batch_idx, writer=None):
+    # 배치에서 첫 번째 이미지 사용
+    input_image = inputs[0].cpu().detach()
+    output_image = outputs[0].cpu().detach()
+    label_image = labels[0].cpu().detach()
+    
+    # 입력 이미지의 RGB 채널만 사용
+    input_image_rgb = input_image[:3]  # [3, H, W]
+    
+    # 시각화를 위해 [0, 1] 범위로 스케일링
+    input_image_rgb = (input_image_rgb - input_image_rgb.min()) / (input_image_rgb.max() - input_image_rgb.min())
+    
+    # 예측 마스크: torch.argmax을 사용하여 클래스 인덱스 추출
+    pred_mask = torch.argmax(output_image, dim=0).float()  # [H, W]
+    pred_mask = pred_mask.unsqueeze(0)  # [1, H, W]
+    # pred_mask = output_image
+    # 필요에 따라 스케일링 (이미 이진화된 경우 생략 가능)
+    pred_mask = (pred_mask - pred_mask.min()) / (pred_mask.max() - pred_mask.min())
+    
+    # 실제 마스크: 채널 차원 제거 후 채널 차원 추가
+    # true_mask = label_image.squeeze(0).float()  # [H, W]
+    #true_mask = true_mask.unsqueeze(0)  # [1, H, W]
+    true_mask = label_image.unsqueeze(0)
+    # 필요에 따라 스케일링 (이미 이진화된 경우 생략 가능)
+    true_mask = (true_mask - true_mask.min()) / (true_mask.max() - true_mask.min())
+    
+    # TensorBoard에 이미지 추가
+    writer.add_image(f'Validation/Input_Epoch_{epoch}_Batch_{batch_idx}', input_image_rgb, epoch)
+    writer.add_image(f'Validation/Predicted_Epoch_{epoch}_Batch_{batch_idx}', pred_mask, epoch)
+    writer.add_image(f'Validation/GroundTruth_Epoch_{epoch}_Batch_{batch_idx}', true_mask, epoch)
+    
 def save_pretraining_results(inputs, outputs, labels, epoch, batch_idx, writer=None):
     # 배치에서 첫 번째 이미지 사용
     input_image = inputs[0].cpu().detach()
