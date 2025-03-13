@@ -1,46 +1,99 @@
 import sys
-import random
-sys.path.append("../")  # 프로젝트 루트를 경로에 추가
-from model import create_model
-
 import os
 import glob
+import random
 import numpy as np
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, random_split
+
+sys.path.append("../")  # 프로젝트 루트 추가
+from model import create_model
+from datasets.dataset import WrinkleDataset, WrappedDataset
+from utils.metrics import evaluate_model_gpu, calculate_depth_min_max
+from utils.train_utils import load_test
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-import torch
-import torch.nn as nn
-from torch.utils.data import DataLoader
-from torch.utils.data import random_split
-
-from datasets.dataset import WrinkleDataset, get_train_augmentations, WrappedDataset
-from utils.metrics import evaluate_model_gpu, calculate_depth_min_max
-
-def main_test(mode, ckpt_path, seed=42, batch_size=8):
+def test_pretrained_model(run_id, seed, mode, model_type, batch_size=10, pretrain_path=None):
 
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
     generator = torch.Generator().manual_seed(42)
 
-    # in_channels by mode
-    if mode == "RGB":
-        in_ch = 3
-    elif mode == "RGBT":
-        in_ch = 4
-    elif mode == "RGBDT":
-        in_ch = 5
-    else:
-        raise ValueError(f"Unknown mode: {mode}")
+    print(f"Testing: run_id={run_id}, seed={seed}, mode={mode}, model={model_type}")
 
-    # 모델
-    model = create_model(model_type="custom_unet", in_channels=in_ch, out_channels=2)
+    if model_type == "custom_unet":
+        in_ch = {"RGB": 3, "RGBT": 4,"RGB_check": 3, "RGBT_check": 4, "RGB_origin":3, "RGBT_origin":4,"RGBDT_origin": 5,"RGBDT_full" : 5, "RGBDT": 5, "RGBDT_test": 5, "denoise": 3}.get(mode, None)
+        out_ch = 2
+        if in_ch is None:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        model = create_model(
+            model_type= model_type,
+            in_channels=in_ch,   # 입력 채널 수 RGB(3) + Depth(1) + Weak Texture Map(1)
+            out_channels= out_ch  # 출력 채널 수 Wrinkle(1) + Background(1)
+        )
+    elif model_type == "imagenet_unet":
+        in_ch = 3
+        out_ch = 2
+        model = create_model(
+            model_type = model_type,
+            in_channels = in_ch,
+            out_channels = out_ch
+        )
+        
+    elif model_type == "custom_unetr":
+        params = {
+            "RGB": (3, 2, 48, (2, 2, 2, 2), False),
+            "RGB_no": (3, 2, 48, (2, 2, 2, 2), False),
+            "RGBT": (4, 2, 48, (2, 2, 2, 2), False),
+            "RGBT_origin": (4, 2, 48, (2, 2, 2, 2), False),
+            "RGBDT": (5, 2, 48, (2, 2, 2, 2), False),
+            "RGBDT_origin": (5, 2, 48, (2, 2, 2, 2), False),
+            "mask": (3, 2, 48, (2, 2, 2, 2), False),
+            "image": (3, 2, 96, (2, 2, 6, 2), True),
+        }
+
+        if mode not in params:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        in_ch, out_ch, feature, depths, v2 = params[mode]
+            
+        model = create_model(
+            img_size= (1024, 1024), 
+            model_type = model_type,
+            in_channels = in_ch,
+            out_channels = out_ch,
+            feature_size = feature,
+            use_v2 = v2,
+            depth = depths,
+            use_checkpoint= True,
+        )
+
+    elif model_type == "strip_net":
+        in_ch = {"RGB" : 3}.get(mode, None)
+        out_ch = 2
+        if in_ch is None:
+            raise ValueError(f"Unknown mode: {mode}")
+
+        model = create_model(
+            model_type = model_type,
+            in_channels = in_ch,
+            out_channels = out_ch
+        )
+    else:
+        raise ValueError(f"Unknown model type: {model_type}")
+        
     model = nn.DataParallel(model).cuda()
 
-    rgb_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/masked_face_images"
-    depth_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/depth_masking"
-    weak_texture_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/weak_wrinkle_mask"
-    label_dir = "/home/donghwi/F_wrinkle_model_project/data/finetuning/manual_wrinkle_masks"
+    if pretrain_path:
+        model = load_test(model, pretrain_path)
+
+    rgb_dir = "../data/finetuning/masked_face_images"
+    depth_dir = "../data/finetuning/depth_masking_any_metric_full"
+    weak_texture_dir = "../data/finetuning/weak_wrinkle_mask"
+    label_dir = "../data/finetuning/manual_wrinkle_masks"
 
     # 파일 리스트
     rgb_paths = sorted(glob.glob(os.path.join(rgb_dir, "*.png")))
@@ -54,8 +107,12 @@ def main_test(mode, ckpt_path, seed=42, batch_size=8):
     weak_texture_paths = sorted(weak_texture_paths, key=lambda x: os.path.basename(x))
     label_paths = sorted(label_paths, key=lambda x: os.path.basename(x))
 
-    min_depth, max_depth = calculate_depth_min_max(depth_paths)
+    data_list = list(zip(rgb_paths, depth_paths, weak_texture_paths, label_paths))
+    random.seed(42)
+    random.shuffle(data_list)
+    rgb_paths, depth_paths, weak_texture_paths, label_paths = zip(*data_list)
 
+    min_depth, max_depth = calculate_depth_min_max(depth_paths)
     dataset = WrinkleDataset(rgb_paths, depth_paths, weak_texture_paths, label_paths,
                              transform=None, min_depth=min_depth, max_depth=max_depth, mode=mode, task='finetune')
     # 데이터 분할
@@ -66,27 +123,16 @@ def main_test(mode, ckpt_path, seed=42, batch_size=8):
     train_subset, val_subset, test_subset = random_split(dataset, [train_size, val_size, test_size], generator=generator)
 
     val_transform = A.Compose([
-        A.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+        A.Normalize(mean=(0.485, 0.456, 0.406, 0, 0), std=(0.229, 0.224, 0.225, 1, 1)),
         ToTensorV2(transpose_mask=True)
     ])
 
     test_dataset = WrappedDataset(test_subset, transform=val_transform)
     test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False, num_workers=4)
 
-    # checkpoint 로드
-    checkpoint = torch.load(ckpt_path, map_location='cuda')
-    if 'model_state_dict' in checkpoint:
-        pretrained_dict = checkpoint['model_state_dict']
-    else:
-        pretrained_dict = checkpoint
-
-    model_dict = model.state_dict()
-    filtered_dict = {k: v for k, v in pretrained_dict.items() if k in model_dict and model_dict[k].shape == v.shape}
-    model.load_state_dict(filtered_dict, strict=False)
-
     # evaluate
     jsi, f1, acc, prec, rec = evaluate_model_gpu(test_loader, model)
-    print(f"[Mode={mode}, seed={seed}] ckpt={ckpt_path}")
+    print(f"[Mode={mode}, Model={model_type}, Seed={seed}] Pretrain={pretrain_path}")
     print(f"  => JSI={jsi:.5f}, F1={f1:.5f}, Acc={acc:.5f}, Prec={prec:.5f}, Rec={rec:.5f}")
     return jsi, f1, acc, prec, rec
 
@@ -94,51 +140,29 @@ def main_test(mode, ckpt_path, seed=42, batch_size=8):
 
 
 def main():
-    # 3개 모드
-    mode_list  = ["RGB", "RGBT", "RGBDT"]
+    run_seeds = [42, 2025, 2024]
+    experiments = {
+        "custom_unet": {"modes": {"RGBDT_origin": "RGBDT_origin","RGBT_origin": "RGBT_origin","RGB_origin": "RGB_origin","RGBT_check": "RGBT_check","RGB_check": "RGB_check"}},
 
-    # 예시로 아래와 같이 3개씩
-    #   RGB -> (ckpt_rgb_1, ckpt_rgb_2, ckpt_rgb_3)
-    #   RGBD-> (ckpt_rgbd_1, ckpt_rgbd_2, ckpt_rgbd_3)
-    #   RGBDT-> ...
-    all_checkpoints = {
-        "RGB": [
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGB0206_0_seed42.pth",
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGB0206_1_seed2025.pth",
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGB0206_2_seed2024.pth"
-        ],
-        "RGBT": [
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGBT_0_seed42.pth",
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGBT_1_seed2025.pth",
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGBT_2_seed2024.pth"
-        ],
-        "RGBDT": [
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGBDT0202_0_seed42.pth",
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGBDT0202_1_seed2025.pth",
-            "./no_RDT/no_pretrain/best_unet_finetuning_RGBDT0202_2_seed2024.pth"
-        ]
+        "custom_unetr": {"modes": {"RGBT_origin" : "RGBT_origin" }},
+
     }
-
-    batch_size = 10
-    seeds = [42, 2025, 2024]
-
-    # 모드별로 결과 저장
-    for mode in mode_list:
-        ckpts  = all_checkpoints[mode]  # 3개
-        results = []
-
-        for ckpt_path, seed in zip(ckpts, seeds):
-            jsi, f1, acc, prec, rec = main_test(mode, ckpt_path, batch_size = batch_size, seed = seed)
-            results.append((jsi, f1, acc, prec, rec))
-        
-        results_array = np.array(results)
-        means = results_array.mean(axis=0)
-        stds  = results_array.std(axis=0)
-
-        metric_names = ["JSI", "F1", "Acc", "Prec", "Recall"]
-        print(f"\n==== Mode={mode} Final Results across seeds=[42,2025,2024] ====")
-        for i, mname in enumerate(metric_names):
-            print(f"{mname}: {means[i]:.5f} ± {stds[i]:.5f}")
+    batch_size = 14
+    for model_type, settings in experiments.items():
+        print(f"\n=== Evaluating pretrained models: {model_type} ===")
+        for mode in settings["modes"]:
+            results = []
+            for run_id, seed in enumerate(run_seeds):
+                pretrain_path = f"./checkpoint/fine_tuning/{model_type}_{mode}/best_{model_type}_{mode}_{run_id}_seed{seed}.pth"
+                jsi, f1, acc, prec, rec = test_pretrained_model(run_id, seed, mode, model_type, batch_size, pretrain_path)
+                results.append((jsi, f1, acc, prec, rec))
+            results_array = np.array(results)
+            means = results_array.mean(axis=0)
+            stds = results_array.std(axis=0)
+            metric_names = ["JSI", "F1", "Acc", "Prec", "Recall"]
+            print(f"\n==== Mode={mode} Final Results across seeds={run_seeds} ====")
+            for i, mname in enumerate(metric_names):
+                print(f"{mname}: {means[i]:.5f} ± {stds[i]:.5f}")
 
 if __name__ == "__main__":
     main()
