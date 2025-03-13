@@ -1,8 +1,10 @@
 from monai.networks.nets import SwinUNETR, UNet as MONAI_UNet
 from model.Custom_UNet import UNet as CustomUNet
 from model.Custom_swin_unetr import SwinUNETR as Custom_SwinUNETR
+from model.striped_wrinet import StripedWriNet as strip_net
 from .simMIM import SwinTransformerForSimMIM, SimMIM
 import segmentation_models_pytorch as smp
+
 
 def create_model(model_type="swin_unetr", img_size=(1024, 1024), depth = (2, 2, 6, 2), in_channels=3, out_channels=1, feature_size=48, use_checkpoint=True, use_v2=True, pretrain = False, pretrain_path = "None"):
     """
@@ -85,6 +87,11 @@ def create_model(model_type="swin_unetr", img_size=(1024, 1024), depth = (2, 2, 
             out_channels=out_channels,
             channels=(64, 128, 256, 512, 1024),
             bilinear=True
+        )
+    elif model_type.lower() == "strip_net":
+        return strip_net(
+            n_channels=in_channels,
+            n_classes=out_channels
         )
     else:
         raise ValueError("Invalid model_type. Choose either 'swin_unetr' or 'unet'.")
