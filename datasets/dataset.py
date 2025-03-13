@@ -69,8 +69,8 @@ class WrinkleDataset(Dataset):
         if "D" in self.mode:
             depth_image = np.array(Image.open(depth_path).convert("L")).astype(np.float32)
 
-            # depth_image = (depth_image - self.min_depth) / (self.max_depth - self.min_depth)
-            # depth_image = np.clip(depth_image, 0, 1)
+            depth_image = (depth_image - self.min_depth) / (self.max_depth - self.min_depth)
+            depth_image = np.clip(depth_image, 0, 1)
             depth_image = np.expand_dims(depth_image, axis=-1)  # (H, W, 1)
         
         # Weak Texture 로드 및 정규화
