@@ -88,7 +88,7 @@ def main_experiment(run_id, seed, mode, model_type, epoch, batch_size = 10, pret
     model = nn.DataParallel(model).cuda()
 
     if pretrain_path:
-        model = load_pretrain(model, pretrain_path)
+        model = load_pretrain(model, pretrain_path, mode=mode)
     
     print("Model initialized and ready for training!")
     
